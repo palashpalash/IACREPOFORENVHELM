@@ -14,7 +14,7 @@ pipeline {
   environment {
     // Leave empty to use the agent's IAM role (instance profile).
     // Otherwise set to your Jenkins AWS credentials ID (access key/secret).
-    AWS_CREDS = ''
+    AWS_CREDS = 'aws-credentials-id'
   }
 
   stages {
@@ -96,4 +96,24 @@ pipeline {
       }
     }
 
-    stage('Po
+    stage('Post-Deploy Check') {
+      steps {
+        powershell """
+          kubectl -n ${env.NAMESPACE} get deploy,po,svc -l app.kubernetes.io/instance=${params.RELEASE_NAME}
+          Write-Host 'LB Hostname:'
+          kubectl -n ${env.NAMESPACE} get svc -l app.kubernetes.io/instance=${params.RELEASE_NAME} `
+            -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}{\"`n\"}' | Out-String
+        """
+      }
+    }
+  }
+
+  post {
+    success {
+      echo "✅ Deployed ${params.RELEASE_NAME} to ${params.ENV} (${env.CLUSTER}) with ${params.IMAGE_REPO}:${params.IMAGE_TAG}"
+    }
+    failure {
+      echo "❌ Deployment failed. Check logs above."
+    }
+  }
+}
