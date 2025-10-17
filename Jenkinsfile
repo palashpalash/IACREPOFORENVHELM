@@ -14,7 +14,7 @@ pipeline {
   environment {
     // Leave empty to use the agent's IAM role (instance profile).
     // If you need explicit AWS creds, put the Jenkins Credentials ID here.
-    AWS_CREDS = ''
+    AWS_CREDS = 'aws-credentials-id'
   }
 
   stages {
