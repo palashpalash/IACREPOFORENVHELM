@@ -1,0 +1,12 @@
+replicaCount: 1
+
+image:
+  repository: ""   # Jenkins will override
+  tag: ""          # Jenkins will override
+  pullPolicy: IfNotPresent
+
+service:
+  type: LoadBalancer
+  port: 8081
+
+resources: {}  # keep light for learning

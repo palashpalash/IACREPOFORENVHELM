@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "myapp.fullname" . | default (printf "%s-svc" .Release.Name) }}
+  labels:
+    app.kubernetes.io/name: {{ include "myapp.name" . | default .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: {{ .Values.service.type }}             # LoadBalancer
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/name: {{ include "myapp.name" . | default .Chart.Name }}
+  ports:
+    - port: {{ .Values.service.port }}         # 8081 exposed externally
+      targetPort: {{ .Values.service.port }}   # 8081 in container
+      protocol: TCP
+      name: http

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: myapp
+description: Simple app chart for EKS multi-env via Jenkins
+type: application
+version: 0.1.0         # chart version
+appVersion: "1.0.0"    # app version (informational)
