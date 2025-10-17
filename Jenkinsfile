@@ -13,29 +13,34 @@ pipeline {
 
   environment {
     // Leave empty to use the agent's IAM role (instance profile).
-    // If you need explicit AWS creds, put the Jenkins Credentials ID here.
-    AWS_CREDS = 'aws-credentials-id'
+    // Otherwise set to your Jenkins AWS credentials ID (access key/secret).
+    AWS_CREDS = ''
   }
 
   stages {
-    stage('Checkout (from SCM)') {
+    stage('Checkout (SCM)') {
       steps {
-        // Use the repo Jenkins already checked out for this job
+        // Use the repository Jenkins already checked out to obtain this Jenkinsfile
         checkout scm
-        // Verify chart exists
+        // Sanity check: chart exists; list contents
         powershell 'if (!(Test-Path helm)) { throw "helm/ folder missing" }'
-        powershell 'Get-ChildItem helm'
+        powershell 'Get-ChildItem -Recurse -Force helm | Select-Object FullName'
       }
     }
 
     stage('Select Cluster') {
       steps {
         script {
-          def envToCluster = [ dev: 'eks_dev', stage: 'eks_stage', uat: 'eks_uat' ]
+          // ✅ Hyphenated cluster names (EKS does not allow underscores)
+          def envToCluster = [
+            dev  : 'eks-dev',
+            stage: 'eks-stage',
+            uat  : 'eks-uat'
+          ]
           env.CLUSTER   = envToCluster[params.ENV]
           env.NAMESPACE = 'default'
           if (!env.CLUSTER) error "Unknown ENV=${params.ENV}"
-          echo "Target: cluster=${env.CLUSTER}, namespace=${env.NAMESPACE}"
+          echo "Target: cluster=${env.CLUSTER}, namespace=${env.NAMESPACE}, region=${params.REGION}"
         }
       }
     }
@@ -53,6 +58,7 @@ pipeline {
             }
           }
           runAws """
+            aws --version
             aws sts get-caller-identity
             aws eks update-kubeconfig --name ${env.CLUSTER} --region ${params.REGION}
             kubectl config current-context
@@ -65,12 +71,13 @@ pipeline {
     stage('Helm Lint & Dry Run') {
       steps {
         powershell """
+          helm version
           helm lint helm
           helm template ${params.RELEASE_NAME} helm `
             -f helm/values-${params.ENV}.yaml `
             --set image.repository=${params.IMAGE_REPO} `
             --set image.tag=${params.IMAGE_TAG} `
-            --namespace ${env.NAMESPACE} | Select-Object -First 80
+            --namespace ${env.NAMESPACE} | Select-Object -First 100
         """
       }
     }
@@ -89,24 +96,4 @@ pipeline {
       }
     }
 
-    stage('Post-Deploy Check') {
-      steps {
-        powershell """
-          kubectl -n ${env.NAMESPACE} get deploy,po,svc -l app.kubernetes.io/instance=${params.RELEASE_NAME}
-          Write-Host 'LB Hostname:'
-          kubectl -n ${env.NAMESPACE} get svc -l app.kubernetes.io/instance=${params.RELEASE_NAME} `
-            -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}{\"`n\"}' | Out-String
-        """
-      }
-    }
-  }
-
-  post {
-    success {
-      echo "✅ Deployed ${params.RELEASE_NAME} to ${params.ENV} (${env.CLUSTER}) with ${params.IMAGE_REPO}:${params.IMAGE_TAG}"
-    }
-    failure {
-      echo "❌ Deployment failed. Check logs above."
-    }
-  }
-}
+    stage('Po
