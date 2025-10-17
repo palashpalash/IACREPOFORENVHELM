@@ -3,51 +3,35 @@ pipeline {
 
   parameters {
     choice(name: 'ENV', choices: ['dev', 'stage', 'uat'], description: 'Target environment')
-    string(name: 'REPO_NAME', defaultValue: 'https://github.com/palashpalash/IACREPOFORENVHELM.git', description: 'GitHub repo name OR full URL')
-    string(name: 'BRANCH', defaultValue: 'main', description: 'Git branch to deploy')
     string(name: 'IMAGE_REPO', defaultValue: 'dockerhubusername/reponame', description: 'Docker Hub repo (e.g. palash123567/my-springboot-app)')
     string(name: 'IMAGE_TAG', defaultValue: 'latest', description: 'Image tag to deploy')
     string(name: 'RELEASE_NAME', defaultValue: 'myapp', description: 'Helm release name')
     string(name: 'REGION', defaultValue: 'ap-south-1', description: 'AWS region')
   }
 
-  environment {
-    // Leave empty to use EC2 instance profile on the agent.
-    // Set to your Jenkins Credentials ID (AccessKey/Secret) to use explicit creds.
-    AWS_CREDS = ''   // e.g. 'aws-credentials-id'
-  }
+  options { timestamps() }
 
-  options {
-    timestamps()
-    ansiColor('xterm')
+  environment {
+    // Leave empty to use the agent's IAM role (instance profile).
+    // If you need explicit AWS creds, put the Jenkins Credentials ID here.
+    AWS_CREDS = ''
   }
 
   stages {
-    stage('Checkout') {
+    stage('Checkout (from SCM)') {
       steps {
-        script {
-          def url = params.REPO_NAME
-          if (!url.startsWith('http')) {
-            url = "https://github.com/${params.GITHUB_USER}/${params.REPO_NAME}.git"
-          }
-          echo "Cloning: ${url} @ ${params.BRANCH}"
-          checkout([$class: 'GitSCM',
-            branches: [[name: params.BRANCH]],
-            userRemoteConfigs: [[url: url]]
-          ])
-        }
-        sh 'test -d helm || { echo "helm/ folder missing"; exit 1; }'
+        // Use the repo Jenkins already checked out for this job
+        checkout scm
+        // Verify chart exists
+        powershell 'if (!(Test-Path helm)) { throw "helm/ folder missing" }'
+        powershell 'Get-ChildItem helm'
       }
     }
 
     stage('Select Cluster') {
       steps {
         script {
-          def envToCluster = [
-            dev:   'eks_dev',
-            stage: 'eks_stage',
-            uat:   'eks_uat'
-          ]
+          def envToCluster = [ dev: 'eks_dev', stage: 'eks_stage', uat: 'eks_uat' ]
           env.CLUSTER   = envToCluster[params.ENV]
           env.NAMESPACE = 'default'
           if (!env.CLUSTER) error "Unknown ENV=${params.ENV}"
@@ -59,48 +43,47 @@ pipeline {
     stage('Auth & Kube Context') {
       steps {
         script {
-          def runAws = { cmd ->
+          def runAws = { psCmd ->
             if (env.AWS_CREDS?.trim()) {
               withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: env.AWS_CREDS]]) {
-                sh cmd
+                powershell(psCmd)
               }
             } else {
-              sh cmd
+              powershell(psCmd)
             }
           }
-
           runAws """
             aws sts get-caller-identity
             aws eks update-kubeconfig --name ${env.CLUSTER} --region ${params.REGION}
             kubectl config current-context
+            kubectl get ns
           """
-          sh "kubectl get ns"
         }
       }
     }
 
     stage('Helm Lint & Dry Run') {
       steps {
-        sh """
+        powershell """
           helm lint helm
-          helm template ${params.RELEASE_NAME} helm \
-            -f helm/values-${params.ENV}.yaml \
-            --set image.repository=${params.IMAGE_REPO} \
-            --set image.tag=${params.IMAGE_TAG} \
-            --namespace ${env.NAMESPACE} | head -n 100
+          helm template ${params.RELEASE_NAME} helm `
+            -f helm/values-${params.ENV}.yaml `
+            --set image.repository=${params.IMAGE_REPO} `
+            --set image.tag=${params.IMAGE_TAG} `
+            --namespace ${env.NAMESPACE} | Select-Object -First 80
         """
       }
     }
 
     stage('Deploy') {
       steps {
-        sh """
-          helm upgrade --install ${params.RELEASE_NAME} helm \
-            -f helm/values-${params.ENV}.yaml \
-            --set image.repository=${params.IMAGE_REPO} \
-            --set image.tag=${params.IMAGE_TAG} \
-            --namespace ${env.NAMESPACE} \
-            --history-max 10 \
+        powershell """
+          helm upgrade --install ${params.RELEASE_NAME} helm `
+            -f helm/values-${params.ENV}.yaml `
+            --set image.repository=${params.IMAGE_REPO} `
+            --set image.tag=${params.IMAGE_TAG} `
+            --namespace ${env.NAMESPACE} `
+            --history-max 10 `
             --wait --timeout 10m
         """
       }
@@ -108,11 +91,11 @@ pipeline {
 
     stage('Post-Deploy Check') {
       steps {
-        sh """
+        powershell """
           kubectl -n ${env.NAMESPACE} get deploy,po,svc -l app.kubernetes.io/instance=${params.RELEASE_NAME}
-          echo "LB Hostname:"
-          kubectl -n ${env.NAMESPACE} get svc -l app.kubernetes.io/instance=${params.RELEASE_NAME} \
-            -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}{"\\n"}' || true
+          Write-Host 'LB Hostname:'
+          kubectl -n ${env.NAMESPACE} get svc -l app.kubernetes.io/instance=${params.RELEASE_NAME} `
+            -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}{\"`n\"}' | Out-String
         """
       }
     }
