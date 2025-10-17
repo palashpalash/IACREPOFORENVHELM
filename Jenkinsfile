@@ -3,8 +3,7 @@ pipeline {
 
   parameters {
     choice(name: 'ENV', choices: ['dev', 'stage', 'uat'], description: 'Target environment')
-    string(name: 'REPO_NAME', defaultValue: 'your-helm-repo', description: 'GitHub repo name OR full URL')
-    string(name: 'GITHUB_USER', defaultValue: 'your-github-username', description: 'GitHub username (ignored if REPO_NAME is full URL)')
+    string(name: 'REPO_NAME', defaultValue: 'https://github.com/palashpalash/IACREPOFORENVHELM.git', description: 'GitHub repo name OR full URL')
     string(name: 'BRANCH', defaultValue: 'main', description: 'Git branch to deploy')
     string(name: 'IMAGE_REPO', defaultValue: 'dockerhubusername/reponame', description: 'Docker Hub repo (e.g. palash123567/my-springboot-app)')
     string(name: 'IMAGE_TAG', defaultValue: 'latest', description: 'Image tag to deploy')
